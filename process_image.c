@@ -15,9 +15,9 @@ static BSEMAPHORE_DECL(image_ready_sem, TRUE);
  *  Returns the line's width extracted from the image buffer given
  *  Returns 0 if line not found
  */
-void detect_line(uint8_t *buffer, uint8_t* line_not_found_ptr) { //problème, je veux faire passer par référence mais ça marche pas
+void detect_line(uint8_t *buffer, uint8_t* line_not_found_ptr) {
 
-	uint16_t i = 0, begin = 0, end = 0, width = 0;
+	uint16_t i = 0, begin = 0, end = 0;
 	uint8_t stop = 0, wrong_line = 0, line_not_found = 0;
 	uint32_t mean = 0;
 
@@ -76,8 +76,7 @@ void detect_line(uint8_t *buffer, uint8_t* line_not_found_ptr) { //problème, je
 		}
 	}while(wrong_line);
 
-	*line_not_found_ptr = line_not_found;
-	
+	*line_not_found_ptr = line_not_found;	
 }
 
 static THD_WORKING_AREA(waCaptureImage, 256);
@@ -112,8 +111,8 @@ static THD_FUNCTION(ProcessImage, arg) {
 	uint8_t *img_buff_ptr;
 	uint8_t image_R[IMAGE_BUFFER_SIZE] = {0};
 	uint8_t image_B[IMAGE_BUFFER_SIZE] = {0};
-//	static uint8_t redline_not_found = 0;
-//	static uint8_t blueline_not_found = 0;
+	static uint8_t redline_not_found = 0;
+	static uint8_t blueline_not_found = 0;
 
     while(1){
     	//waits until an image has been captured
@@ -123,27 +122,26 @@ static THD_FUNCTION(ProcessImage, arg) {
 
 	//Extracts pixels
 	for(uint16_t i = 0 ; i < (2 * IMAGE_BUFFER_SIZE) ; i+=2){
-		//extracts first 5bits of the first byte for red color
+		//extracts first 5bits of the first byte : RED PIXELS
 		//takes nothing from the second byte
-		image_R[i/2] = ((uint8_t)img_buff_ptr[i]&0xF8) >> 3;
-		//extracts last 5bits of the last byte for blue color
+		image_R[i/2] = ((uint8_t)img_buff_ptr[i]&0xF8) >> 3; // 0b10101010 & 0b1111'1000 = 0b10101000
+		//extracts last 5bits of the last byte : BLUE PIXELS
 		//takes nothing from the first byte
 		image_B[i/2] = (uint8_t)img_buff_ptr[i+1]&0x1F;
-		}
+	}
 
-// MARCHE PAS
+	//search for a line in the image
+	detect_line(image_R, &redline_not_found);
+	detect_line(image_B, &blueline_not_found);
 
-	//search for a line in the image   							//bon jsp plus comment faire avec ces histoires de référence ==> je veux modifier directement
-	detect_line(image_B, blueline_not_found);
-	detect_line(image_R, redline_not_found);
-
-	if (redline_not_found == 0) {
-		set_led(LED4, 1);
-	} else if (blueline_not_found == 0){
-		set_led(LED2, 1);
+	/*FONCTION TEST*, ce serait bien de le mettre dans une interruption lorsque l'on détecte une ligne*/ 
+	if (redline_not_found == 0) {	//a faire clignoter ?
+		set_front_led(1);
+	} else if (blueline_not_found == 0) {
+		set_body_led(1);
 	} else {
-		set_led(LED4, 0);
-		set_led(LED2, 1);
+		set_front_led(0);
+		set_body_led(0);
 	}
     }
 }
