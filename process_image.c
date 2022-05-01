@@ -1,15 +1,12 @@
 #include "ch.h"
 #include "hal.h"
+
 #include <chprintf.h>
 #include <usbcfg.h>
-
 #include <main.h>
 #include <camera/po8030.h>
 #include <leds.h>
-
 #include <process_image.h>
-
-static uint16_t line_position = IMAGE_BUFFER_SIZE/2;	//middle
 
 //semaphore
 static BSEMAPHORE_DECL(image_ready_sem, TRUE);
@@ -18,13 +15,11 @@ static BSEMAPHORE_DECL(image_ready_sem, TRUE);
  *  Returns the line's width extracted from the image buffer given
  *  Returns 0 if line not found
  */
-uint16_t extract_line_width(uint8_t *buffer){
+void detect_line(uint8_t *buffer, uint8_t* line_not_found_ptr) { //problème, je veux faire passer par référence mais ça marche pas
 
 	uint16_t i = 0, begin = 0, end = 0, width = 0;
 	uint8_t stop = 0, wrong_line = 0, line_not_found = 0;
 	uint32_t mean = 0;
-
-	static uint16_t last_width = PXTOCM/GOAL_DISTANCE;
 
 	//performs an average
 	for(uint16_t i = 0 ; i < IMAGE_BUFFER_SIZE ; i++){
@@ -81,23 +76,8 @@ uint16_t extract_line_width(uint8_t *buffer){
 		}
 	}while(wrong_line);
 
-	if(line_not_found){
-		begin = 0;
-		end = 0;
-		width = last_width;
-		set_led(LED4, 0);	//test
-	}else{
-		last_width = width = (end - begin);
-		line_position = (begin + end)/2; //gives the line position.
-		set_led(LED4,1); 	//test
-	}
-
-	//sets a maximum width or returns the measured width
-	if((PXTOCM/width) > MAX_DISTANCE){
-		return PXTOCM/MAX_DISTANCE;
-	}else{
-		return width;
-	}
+	*line_not_found_ptr = line_not_found;
+	
 }
 
 static THD_WORKING_AREA(waCaptureImage, 256);
@@ -130,24 +110,41 @@ static THD_FUNCTION(ProcessImage, arg) {
     (void)arg;
 
 	uint8_t *img_buff_ptr;
-	uint8_t image[IMAGE_BUFFER_SIZE] = {0};
-	uint16_t lineWidth = 0;
+	uint8_t image_R[IMAGE_BUFFER_SIZE] = {0};
+	uint8_t image_B[IMAGE_BUFFER_SIZE] = {0};
+//	static uint8_t redline_not_found = 0;
+//	static uint8_t blueline_not_found = 0;
 
     while(1){
     	//waits until an image has been captured
         chBSemWait(&image_ready_sem);
-		//gets the pointer to the array filled with the last image in RGB565    
-		img_buff_ptr = dcmi_get_last_image_ptr();
+	//gets the pointer to the array filled with the last image in RGB565    
+	img_buff_ptr = dcmi_get_last_image_ptr();
 
-		//Extracts pixels
-		for(uint16_t i = 0 ; i < (2 * IMAGE_BUFFER_SIZE) ; i+=2){
-			//extracts first 5bits of the first byte for red color
-			//takes nothing from the second byte
-			image[i/2] = ((uint8_t)img_buff_ptr[i]&0xF8) >> 3;
+	//Extracts pixels
+	for(uint16_t i = 0 ; i < (2 * IMAGE_BUFFER_SIZE) ; i+=2){
+		//extracts first 5bits of the first byte for red color
+		//takes nothing from the second byte
+		image_R[i/2] = ((uint8_t)img_buff_ptr[i]&0xF8) >> 3;
+		//extracts last 5bits of the last byte for blue color
+		//takes nothing from the first byte
+		image_B[i/2] = (uint8_t)img_buff_ptr[i+1]&0x1F;
 		}
 
-		//search for a line in the image and gets its width in pixels
-		lineWidth = extract_line_width(image);
+// MARCHE PAS
+
+	//search for a line in the image   							//bon jsp plus comment faire avec ces histoires de référence ==> je veux modifier directement
+	detect_line(image_B, blueline_not_found);
+	detect_line(image_R, redline_not_found);
+
+	if (redline_not_found == 0) {
+		set_led(LED4, 1);
+	} else if (blueline_not_found == 0){
+		set_led(LED2, 1);
+	} else {
+		set_led(LED4, 0);
+		set_led(LED2, 1);
+	}
     }
 }
 
