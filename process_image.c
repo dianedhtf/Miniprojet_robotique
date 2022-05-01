@@ -5,11 +5,10 @@
 
 #include <main.h>
 #include <camera/po8030.h>
+#include <leds.h>
 
 #include <process_image.h>
 
-
-static float distance_cm = 0;
 static uint16_t line_position = IMAGE_BUFFER_SIZE/2;	//middle
 
 //semaphore
@@ -86,9 +85,11 @@ uint16_t extract_line_width(uint8_t *buffer){
 		begin = 0;
 		end = 0;
 		width = last_width;
+		set_led(LED4, 0);	//test
 	}else{
 		last_width = width = (end - begin);
 		line_position = (begin + end)/2; //gives the line position.
+		set_led(LED4,1); 	//test
 	}
 
 	//sets a maximum width or returns the measured width
@@ -132,44 +133,22 @@ static THD_FUNCTION(ProcessImage, arg) {
 	uint8_t image[IMAGE_BUFFER_SIZE] = {0};
 	uint16_t lineWidth = 0;
 
-	bool send_to_computer = true;
-
     while(1){
     	//waits until an image has been captured
         chBSemWait(&image_ready_sem);
 		//gets the pointer to the array filled with the last image in RGB565    
 		img_buff_ptr = dcmi_get_last_image_ptr();
 
-		//Extracts only the red pixels
+		//Extracts pixels
 		for(uint16_t i = 0 ; i < (2 * IMAGE_BUFFER_SIZE) ; i+=2){
-			//extracts first 5bits of the first byte
+			//extracts first 5bits of the first byte for red color
 			//takes nothing from the second byte
-			image[i/2] = (uint8_t)img_buff_ptr[i]&0xF8;
+			image[i/2] = ((uint8_t)img_buff_ptr[i]&0xF8) >> 3;
 		}
 
 		//search for a line in the image and gets its width in pixels
 		lineWidth = extract_line_width(image);
-
-		//converts the width into a distance between the robot and the camera
-		if(lineWidth){
-			distance_cm = PXTOCM/lineWidth;
-		}
-
-		if(send_to_computer){
-			//sends to the computer the image
-			SendUint8ToComputer(image, IMAGE_BUFFER_SIZE);
-		}
-		//invert the bool
-		send_to_computer = !send_to_computer;
     }
-}
-
-float get_distance_cm(void){
-	return distance_cm;
-}
-
-uint16_t get_line_position(void){
-	return line_position;
 }
 
 void process_image_start(void){
