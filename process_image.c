@@ -7,6 +7,15 @@
 #include <camera/po8030.h>
 #include <leds.h>
 #include <process_image.h>
+#include <control_robot.h>
+
+//constants for process_image
+#define IMAGE_BUFFER_SIZE		640
+#define WIDTH_SLOPE				5
+#define MIN_LINE_WIDTH			40
+
+static uint8_t redline_not_found = 0;
+static uint8_t blueline_not_found = 0;
 
 //semaphore
 static BSEMAPHORE_DECL(image_ready_sem, TRUE);
@@ -109,10 +118,9 @@ static THD_FUNCTION(ProcessImage, arg) {
     (void)arg;
 
 	uint8_t *img_buff_ptr;
-	uint8_t image_R[IMAGE_BUFFER_SIZE] = {0};
-	uint8_t image_B[IMAGE_BUFFER_SIZE] = {0};
-	static uint8_t redline_not_found = 0;
-	static uint8_t blueline_not_found = 0;
+	//Tableaux déclarés comme static, permet de ne pas dépasser la taille de la mémoire de la thread qui est de 1024 bits ==> car on a 2 tableaux de image buffer size = 640
+	static uint8_t image_R[IMAGE_BUFFER_SIZE] = {0};
+	static uint8_t image_B[IMAGE_BUFFER_SIZE] = {0};
 
     while(1){
     	//waits until an image has been captured
@@ -134,16 +142,15 @@ static THD_FUNCTION(ProcessImage, arg) {
 	detect_line(image_R, &redline_not_found);
 	detect_line(image_B, &blueline_not_found);
 
-	/*FONCTION TEST*, ce serait bien de le mettre dans une interruption lorsque l'on détecte une ligne*/ 
-	if (redline_not_found == 0) {	//a faire clignoter ?
-		set_front_led(1);
-	} else if (blueline_not_found == 0) {
-		set_body_led(1);
-	} else {
-		set_front_led(0);
-		set_body_led(0);
-	}
     }
+}
+
+uint8_t get_redline_not_found(void){
+	return redline_not_found;
+}
+
+uint8_t get_blueline_not_found(void){
+	return blueline_not_found;
 }
 
 void process_image_start(void){
