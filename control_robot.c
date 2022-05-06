@@ -1,75 +1,72 @@
 /*
  * control_robot.c
- *  Author: Diane d'Haultfoeuille and Viviane Blanc
- */
+ * Author: Diane d'Haultfoeuille and Viviane Blanc
+
+A CHECKER : les include sont-ils tous utiles ? Temps pour les chSleep
+*/
 
 #include "ch.h"
 #include "hal.h"
 #include <chprintf.h>
 #include <usbcfg.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include <leds.h>
 #include <motors.h>
 #include <process_image.h>
-#include <main.h>				//Obligatoire ??
+#include <sensors/proximity.h>
+#include <sensors/VL53L0X/VL53L0X.h>
+#include <main.h>	
 
+#include <msgbus/messagebus.h>			
+
+//DEFINE DIFFERENT STATES OF THE ROBOT
 #define SEARCH_LINE 			0
 #define	SEARCH_DIRECTION		1
 #define REDLINE_FOUND			2
 #define BLUELINE_FOUND 			3
+#define AVOID_OBSTACLE			4
+#define NO_INSTRUCTIONS 		5
 
-//static uint8_t state_robot = 0; 			//besoin d'initialiser ?
+//DEFINE CONSTANT FOR CONTROL ==> DISTANCE A VERIFIER
+#define FREE_WAY 			200		//DISTANCE MIN INDIQUANT UNE NOUVELLE DIRECTION
+#define DIST_SHOOTING_MIN		50		//DISTANCE MIN A PARTIR DE LAQUELLE ON PEUT TIRER
+#define DIST_SHOOTING_MAX		80		//DISTANCE MAX A PARTIR DE LAQUELLE ON PEUT TIRER
+#define DIST_MIN_MUR			60		//DISTANCE A LAQUELLE SE PLACER POUR CHERCHER NEW_DIRECTION
+
+//Static global variables			
 static bool ready_to_search_line = true;
-//static bool change_mode = true;
-//static bool new_direction_find = true;
-//static bool ready_to_search_new_direction = true;
-//static bool end_line = false;
-
-//void set_state_robot(uint8_t new_state) {
-//	state_robot = new_state;
-//}
-
-//bool get_ready_to_search_line (void){
-//	return ready_to_search_line;
-//}
+static bool ready_to_search_new_direction = false;
 
 uint8_t get_mode(void) {
 
-	if ((get_blueline_not_found() == 0) && (ready_to_search_line == true)){
+	if (ready_to_search_line == true){
+		if (get_blueline_not_found() == 0) {
 			return REDLINE_FOUND;
-	} else if ((get_redline_not_found() == 0) && (ready_to_search_line == true)){
-		return BLUELINE_FOUND;
-	} else {
-		return SEARCH_LINE;
+		} else if (get_redline_not_found() == 0) {
+			return BLUELINE_FOUND;
+		} else {
+			return SEARCH_LINE;
+	} else if (ready_to_search_direction == true) {
+			return SEARCH_DIRECTION;
 	}
 }
 
-
-//	if ((get_blueline_not_found() == 0) && (ready_to_search_line == true)){
-////		set_front_led(1);
-////		set_body_led(0);
-////		ready_to_search_line = false;
-//		return REDLINE_FOUND;			//car on devra ajuster la position après pour rester à une distance minimale
-//	} else if (() && (ready_to_search_line == true) && (change_mode == true)) {
-////		set_body_led(1);
-////		set_front_led(0);
-////		ready_to_search_line = false;
-//		return BlUELINE_FOUND;
-//	} else if ((get_blueline_not_found() == 0) && (ready_to_search_line == false) && (obstacle == true) {
-//		return OBSTACLE;
-//	}
-		//		set_front_led(1);{
-//	} else if (end_line == true) {
-//		return SEARCH_DIRECTION;
-//	} else if ((new_direction_find == true) && (ready_to_search_new_direction == true)) {
-//		return SEARCH_LINE;
-//	} else {
+/********************* FONCTIONS FOR MOTOR **********************************/
 
 void set_speed_motor(int speed_l, int speed_r) {
 	left_motor_set_speed(speed_l);
 	right_motor_set_speed(speed_r);
 }
 
+void motor_stop(void){
+	set_speed_motor(0,0);
+}
+/****************************************************************************/
+
+/********************* FONCTIONS FOR LEDS ***********************************/
 void blink_front_led(void) {
 
 	for (int i=0; i<3; ++i) {
@@ -91,11 +88,51 @@ void all_leds_off(void){
 	set_front_led(0);
 }
 
+/*****************************************************************************/
 
-//void set_pos_motor(int position) {
-//	left_motor_set_pos(position);
-//	right_motor_set_speed(position);
-//}
+/******************************** ACTIONS ************************************/
+bool search_new_direction(void){
+
+	motor_stop();				//utile ??
+	chThdSleepMilliseconds(500);	//utile ?
+
+	//ON TOURNE DE 90° A DROITE
+	set_speed_motor(300,-300);
+	chThdSleepMilliseconds(1050);
+	motor_stop();
+	chThdSleepMilliseconds(500);
+
+	if (VL53L0X_get_dist_mm() > FREE_WAY) {
+		return true; //On doit sortir de la boucle
+	} else {
+		//ON TOURNE DE 180° POUR TROUVER UNE NOUVELLE DIRECTION
+		set_speed_motor(-300, 300);
+		chThdSleepMilliseconds(2150);
+		motor_stop();
+		if (VL53L0X_get_dist_mm() > FREE_WAY) {
+			return true;
+		} else {
+			return false; //ON FAIT QUOI AVEC ??
+		}
+	}
+}
+
+void adjust_position(uint8_t distance_max, uint8_t distance_min) {
+	motor_stop();
+	if (VL53L0X_get_dist_mm() > distance_max) {
+		do {
+			set_speed_motor(400, 400);
+		} while (VL53L0X_get_dist_mm() > distance_max);
+	} else if (VL53L0X_get_dist_mm() < distance_min) {
+		do {
+			set_speed_motor(-400, -400);
+		} while (VL53L0X_get_dist_mm() < distance_min);
+	} else {
+		motor_stop();
+	}
+}
+
+/***************************************************************************/
 
 //Marche pas très bien == a cause de la lumiere
 static THD_WORKING_AREA(waControlRobot, 256);
@@ -108,30 +145,41 @@ static THD_FUNCTION(ControlRobot, arg) {
 
     	switch(get_mode()) {
 
+		case SEARCH_LINE:
+			ready_to_search_direction = false;
+			ready_to_search_line = true;
+
+			all_leds_off();
+			set_speed_motor(400,400);			//MOVE STRAIGHT AWAY //EST CE QU'ON IMPOSE UNE VITESSE = SPEED_ROBOT
+    	   	 break;
+
+		case SEARCH_DIRECTION:
+			ready_to_search_direction = false;
+			ready_to_search_line = search_new_direction();
+		break;
+
     		case REDLINE_FOUND:
-    	    	//FAIT CLIGNOTER LA FRONT LED//
-//    			chprintf((BaseSequentialStream *)&SD3, "REDLINE_FOUND= %dus \r \n ",get_mode());
     			ready_to_search_line = false;			//Donc garde normalement l'etat de get_blue/RED_line donc normalement ne va plus détecter une ligne
-    			blink_front_led();
-
-    		break;
-
-    	       case SEARCH_LINE:
-    	    	   all_leds_off();
-    	    	   ready_to_search_line = true;
-    	    	   set_speed_motor(200,200);			//avance tout droit
-
-    	    	   //Pour le test
-    	    	   chThdSleepMilliseconds(500);
-    	    	   set_speed_motor(0,0);
-    	    	   break;
-
+			ready_to_search_direction = true;
+			motor_stop();    			
+			blink_front_led();
+		break;
 
     	       case BLUELINE_FOUND:
-//    	    	   chprintf((BaseSequentialStream *)&SD3, "BLUELINE_FOUND= %dus \r \n ",get_mode());
-    	    	   ready_to_search_line = false;
-    	    	   active_body_led();
-    	    	   break;
+    	    	   	ready_to_search_line = false;
+			ready_to_search_direction = true;
+			motor_stop();
+    	    	   	active_body_led();
+    	    	break;
+
+		case AVOID_OBSTACLE:
+    	    		ready_to_search_line = false;
+    	    		motor_stop();
+    	    	break;
+
+    	    	case NO_INSTRUCTIONS:
+    	    		motor_stop();
+    	    	break;
     	}
     }
 }
