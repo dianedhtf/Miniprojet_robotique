@@ -1,3 +1,9 @@
+/*
+** File : 		main.h
+** Author : 	Diane d'Haultfoeuille & Viviane Blanc
+** Date : 		16 mai 2022
+*/
+
 #ifndef MAIN_H
 #define MAIN_H
 
@@ -9,16 +15,14 @@ extern "C" {
 #include "msgbus/messagebus.h"
 #include "parameter/parameter.h"
 
-/** Robot wide IPC bus. */
+/** Robot wide IPC bus. **/
 extern messagebus_t bus;
 
 extern parameter_namespace_t parameter_root;
 
-//Useful omly if we have to send date to the computer ==> par exemple voir avec #iddef Debug
-void SendUint8ToComputer(uint8_t* data, uint16_t size);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* MAIN_H */
+#endif /* MAIN_H_ */

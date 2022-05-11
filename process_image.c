@@ -1,18 +1,17 @@
+/*
+** File : 		process_image.c
+** Author : 	Diane d'Haultfoeuille & Viviane Blanc
+** Date : 		16 mai 2022
+*/
+
 #include "ch.h"
 #include "hal.h"
-
 #include <chprintf.h>
 #include <usbcfg.h>
+
 #include <main.h>
 #include <camera/po8030.h>
-#include <leds.h>
 #include <process_image.h>
-#include <control_robot.h>
-
-//constants for process_image
-#define IMAGE_BUFFER_SIZE		640
-#define WIDTH_SLOPE				5
-#define MIN_LINE_WIDTH			40
 
 static uint8_t redline_not_found = 0;
 static uint8_t blueline_not_found = 0;
@@ -20,11 +19,9 @@ static uint8_t blueline_not_found = 0;
 //semaphore
 static BSEMAPHORE_DECL(image_ready_sem, TRUE);
 
-/*
- *  Returns the line's width extracted from the image buffer given
- *  Returns 0 if line not found
- */
-void detect_line(uint8_t *buffer, uint8_t* line_not_found_ptr) {
+//Fonction qui détermine si l'on a trouvé une ligne ou non
+//Change la valeur du pointeur passé en paramètre
+void detect_line(uint8_t *buffer, uint8_t* line_not_found_ptr){
 
 	uint16_t i = 0, begin = 0, end = 0;
 	uint8_t stop = 0, wrong_line = 0, line_not_found = 0;
@@ -83,9 +80,9 @@ void detect_line(uint8_t *buffer, uint8_t* line_not_found_ptr) {
 			stop = 0;
 			wrong_line = 1;
 		}
-	}while(wrong_line);
+	} while(wrong_line);
 
-	*line_not_found_ptr = line_not_found;	
+	*line_not_found_ptr = line_not_found;
 }
 
 static THD_WORKING_AREA(waCaptureImage, 256);
@@ -96,6 +93,7 @@ static THD_FUNCTION(CaptureImage, arg) {
 
 	//Takes pixels 0 to IMAGE_BUFFER_SIZE of the line 10 + 11 (minimum 2 lines because reasons)
 	po8030_advanced_config(FORMAT_RGB565, 0, 10, IMAGE_BUFFER_SIZE, 2, SUBSAMPLING_X1, SUBSAMPLING_X1);
+//	po8030_set_awb(0);
 	dcmi_enable_double_buffering();
 	dcmi_set_capture_mode(CAPTURE_ONE_SHOT);
 	dcmi_prepare();
@@ -118,30 +116,28 @@ static THD_FUNCTION(ProcessImage, arg) {
     (void)arg;
 
 	uint8_t *img_buff_ptr;
-	//Tableaux déclarés comme static, permet de ne pas dépasser la taille de la mémoire de la thread qui est de 1024 bits ==> car on a 2 tableaux de image buffer size = 640
 	static uint8_t image_R[IMAGE_BUFFER_SIZE] = {0};
 	static uint8_t image_B[IMAGE_BUFFER_SIZE] = {0};
 
     while(1){
     	//waits until an image has been captured
         chBSemWait(&image_ready_sem);
-	//gets the pointer to the array filled with the last image in RGB565    
-	img_buff_ptr = dcmi_get_last_image_ptr();
+		//gets the pointer to the array filled with the last image in RGB565    
+		img_buff_ptr = dcmi_get_last_image_ptr();
 
-	//Extracts pixels
-	for(uint16_t i = 0 ; i < (2 * IMAGE_BUFFER_SIZE) ; i+=2){
-		//extracts first 5bits of the first byte : RED PIXELS
-		//takes nothing from the second byte
-		image_R[i/2] = ((uint8_t)img_buff_ptr[i]&0xF8) >> 3; // 0b10101010 & 0b1111'1000 = 0b10101000
-		//extracts last 5bits of the last byte : BLUE PIXELS
-		//takes nothing from the first byte
-		image_B[i/2] = (uint8_t)img_buff_ptr[i+1]&0x1F;
-	}
+		//Extracts colored pixels
+		for(uint16_t i = 0 ; i < (2* IMAGE_BUFFER_SIZE) ; i+=2){
+			///extracts first 5bits of the first byte : RED PIXELS
+			//takes nothing from the second byte
+			image_R[i/2] = ((uint8_t)img_buff_ptr[i]&0xF8) >> 3;
+			//extracts last 5bits of the last byte : BLUE PIXELS
+			//takes nothing from the first byte
+			image_B[i/2] = (uint8_t)img_buff_ptr[i+1]&0x1F;
+		}
 
-	//search for a line in the image
-	detect_line(image_R, &redline_not_found);
-	detect_line(image_B, &blueline_not_found);
-
+		//search for a line in the image
+		detect_line(image_R, &redline_not_found);
+		detect_line(image_B, &blueline_not_found);
     }
 }
 
