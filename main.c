@@ -16,6 +16,7 @@
 #include <main.h>
 #include <motors.h>
 #include <camera/po8030.h>
+#include <selector.h>
 
 #include <process_image.h>
 #include <control_robot.h>
@@ -56,11 +57,6 @@ int main(void)
 	process_image_start();
 	control_robot_start();
 	playMelodyStart();
-
-	//Play the starting music
-	chThdSleepMilliseconds(500);
-	playMelody(MARIO_START, 2, 0);
-	chThdSleepMilliseconds(1000);
 
     /* Infinite loop. */
     while (1) {

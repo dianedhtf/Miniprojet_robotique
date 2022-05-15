@@ -16,7 +16,6 @@
 #include <motors.h>
 #include <process_image.h>
 #include <control_robot.h>
-#include <main.h>
 #include <sensors/proximity.h>
 #include <sensors/VL53L0X/VL53L0X.h>
 #include <audio/play_melody.h>
@@ -24,7 +23,7 @@
 
 #include <msgbus/messagebus.h>
 
-//Static global variables to check the robot state
+//Static global variables (boolean) to check the robot state
 static bool ready_to_search_direction = false;
 static bool ready_to_search_line = true;
 static bool end_programm = false;
@@ -58,7 +57,16 @@ void all_leds_off(void){
 void set_all_leds(void){
 	for(int i=0; i<4; i++) {
 		set_led(i, 1);
-		set_rgb_led(i, 255, 0, 0);
+	}
+}
+
+void circle_leds(void) {
+	for (int j=0; j<3; j++) {
+		for(int i=0; i<4; i++) {
+			set_led(i, 1);
+			chThdSleepMilliseconds(200);
+			set_led(i,0);
+		}
 	}
 }
 /*****************************************************************************/
@@ -77,32 +85,32 @@ void shooting(void) {
 bool search_new_direction(void){
 	motor_stop();
 
-	//ON TOURNE DE 90° A DROITE
+	//QUARTER TURN
 	set_speed_motor(TURNING_SPEED,-TURNING_SPEED);
 	chThdSleepMilliseconds(QUARTER_TURN_TIME);
 	motor_stop();
 	chThdSleepMilliseconds(200);
 
-	if (VL53L0X_get_dist_mm() > FREE_WAY) {
+	if (VL53L0X_get_dist_mm() >= FREE_WAY) {					//the robot has found a new direction
 		return true;
 	} else {
-		//ON TOURNE DE 180°
+		//HALF TURN
 		set_speed_motor(-TURNING_SPEED, TURNING_SPEED);
 		chThdSleepMilliseconds(2*QUARTER_TURN_TIME);
 		motor_stop();
-		if (VL53L0X_get_dist_mm() > FREE_WAY) {
+		if (VL53L0X_get_dist_mm() >= FREE_WAY) {				//the robot has found a new direction
 			return true;
 		} else {
-			return false;
+			return false;									//new direction not found
 		}
 	}
 }
 
-bool detection_obstacle(int sensor_1, int sensor_2, led_name_t led_number){
-	if ((sensor_1 < SECURITY_DIST_IR) && (sensor_2 < SECURITY_DIST_IR)) {
+bool detection_obstacle(uint16_t sensor_1, uint16_t sensor_2, led_name_t led_number){
+	if ((sensor_1 <= SECURITY_DIST_IR) && (sensor_2 <= SECURITY_DIST_IR)) {					//no obstacle detected
 		set_led(led_number, OFF);
 		return false;
-	} else if ((sensor_1> SECURITY_DIST_IR-50) || (sensor_2> SECURITY_DIST_IR-50)){
+	} else if ((sensor_1 > SECURITY_DIST_IR-50) || (sensor_2 > SECURITY_DIST_IR-50)){			//obstacle detected
 		set_led(led_number, ON);
 		return true;
 	}
@@ -111,10 +119,10 @@ bool detection_obstacle(int sensor_1, int sensor_2, led_name_t led_number){
 void get_obstacle(void) {
 
     //Define different proximity sensors
-	int right_dist_IR3 = get_prox(2);
-    int right_dist_IR2 = get_prox(1);
-    int left_dist_IR6 = get_prox(5);
-    int left_dist_IR7 = get_prox(6);
+	uint16_t right_dist_IR2 = get_prox(1);
+	uint16_t right_dist_IR3 = get_prox(2);
+	uint16_t left_dist_IR6 = get_prox(5);
+	uint16_t left_dist_IR7 = get_prox(6);
 
     right_obstacle_detected = detection_obstacle(right_dist_IR3, right_dist_IR2, LED3);
     left_obstacle_detected = detection_obstacle(left_dist_IR6, left_dist_IR7, LED7);
@@ -123,27 +131,25 @@ void get_obstacle(void) {
 void adjust_position(uint8_t distance_max, uint8_t distance_min) {
 	motor_stop();
 
-	while (VL53L0X_get_dist_mm() > distance_max) {
+	while (VL53L0X_get_dist_mm() >= distance_max) {
 		get_obstacle();
-
 		if (right_obstacle_detected == true) {
-			set_speed_motor(SPEED_MOTOR, SPEED_MOTOR + SPEED_CORRECTION);
+			set_speed_motor(SPEED_MOTOR, SPEED_MOTOR + SPEED_CORRECTION);				//turn left
 		} else if (left_obstacle_detected == true) {
-			set_speed_motor(SPEED_MOTOR + SPEED_CORRECTION, SPEED_MOTOR);
+			set_speed_motor(SPEED_MOTOR + SPEED_CORRECTION, SPEED_MOTOR);				//turn right
 		} else {
-			set_speed_motor(SPEED_MOTOR, SPEED_MOTOR);
+			set_speed_motor(SPEED_MOTOR, SPEED_MOTOR);									//move forward
 		}
 	}
 
 	while (VL53L0X_get_dist_mm() < distance_min) {
 		get_obstacle();
-
 		if (right_obstacle_detected == true) {
-			set_speed_motor(-SPEED_MOTOR, -SPEED_MOTOR - SPEED_CORRECTION);
+			set_speed_motor(-SPEED_MOTOR, -SPEED_MOTOR - SPEED_CORRECTION);				//turn left
 		} else if (left_obstacle_detected == true) {
-			set_speed_motor(-SPEED_MOTOR - SPEED_CORRECTION, -SPEED_MOTOR);
+			set_speed_motor(-SPEED_MOTOR - SPEED_CORRECTION, -SPEED_MOTOR);				//turn right
 		} else {
-			set_speed_motor(-SPEED_MOTOR, -SPEED_MOTOR);
+			set_speed_motor(-SPEED_MOTOR, -SPEED_MOTOR);								//back up
 		}
 	}
 		motor_stop();
@@ -153,9 +159,9 @@ uint8_t get_mode(void) {
 
 	if (ready_to_search_line == true) {
 		if (right_obstacle_detected == true) {
-			return AVOID_RIGHT_OBSTACLE;
+			return CORRECTION_RIGHT;
 		} else if (left_obstacle_detected == true) {
-			return AVOID_LEFT_OBSTACLE;
+			return CORRECTION_LEFT;
 		} else if (VL53L0X_get_dist_mm() < SECURITY_DIST_TOF) {
 			return SEARCH_DIRECTION;
 		} else {
@@ -174,7 +180,7 @@ uint8_t get_mode(void) {
 			return SEARCH_DIRECTION;
 		} else {
 			if (end_programm == true) {
-				return END_PROGRAMM;
+				return END_PROGRAM;
 			} else {
 				return GAME_OVER;
 			}
@@ -213,7 +219,7 @@ static THD_FUNCTION(ControlRobot, arg) {
     			ready_to_search_direction = true;
 
     			playMelody(IMPOSSIBLE_MISSION, 2, 0);
-    			chThdSleepMilliseconds(500);
+    			chThdSleepMilliseconds(200);
     			//Adjust position to be in the shooting area
     			adjust_position(DIST_SHOOTING_MAX, DIST_SHOOTING_MIN);
     			stopCurrentMelody();
@@ -234,13 +240,13 @@ static THD_FUNCTION(ControlRobot, arg) {
     	    	adjust_position(SECURITY_DIST_TOF, SECURITY_DIST_TOF);
     	    	break;
 
-    	    case AVOID_RIGHT_OBSTACLE:
+    	    case CORRECTION_RIGHT:
     	    	ready_to_search_direction = false;
     	    	//reajust the right position
 	    		set_speed_motor(SPEED_MOTOR, SPEED_MOTOR + SPEED_CORRECTION);
     	    	break;
 
-    	    case AVOID_LEFT_OBSTACLE:
+    	    case CORRECTION_LEFT:
     	    	ready_to_search_direction = false;
     	    	//reajust the left position
     	    	set_speed_motor(SPEED_MOTOR + SPEED_CORRECTION, SPEED_MOTOR);
@@ -251,13 +257,21 @@ static THD_FUNCTION(ControlRobot, arg) {
     	    	ready_to_search_direction = false;
     	    	end_programm = true;
 
+    	    	motor_stop();
     	    	playMelody(WE_ARE_THE_CHAMPIONS, 2, 0);
     	    	chThdSleepMilliseconds(5000);
     	    	stopCurrentMelody();
+    	    	//Waits to Give a break
+    	    	set_body_led(ON);
+    	    	circle_leds();
+
+    	    	//Waits to give a break
+    	    	chThdSleepMilliseconds(BREAK_TIME);
     	    	break;
 
     	    case GAME_OVER:
     	    	ready_to_search_direction = false;
+    	    	ready_to_search_line = false;
     	    	end_programm = true;
 
     	    	motor_stop();
@@ -265,12 +279,28 @@ static THD_FUNCTION(ControlRobot, arg) {
     	    	playMelody(MARIO_DEATH, 2, 0);
     	    	chThdSleepMilliseconds(5000);
     	    	stopCurrentMelody();
+
+    	    	//Waits to Give a break
+    	    	chThdSleepMilliseconds(BREAK_TIME);
     	    	break;
 
-    	    case END_PROGRAMM:
-    	    	motor_stop();
+    	    case END_PROGRAM:
+    	    	end_programm = false;
+
     	    	all_leds_off();
-    	    	stopCurrentMelody();
+    	    	motor_stop();
+
+    	    	//Turn over and begin the program
+    	    	set_speed_motor(-TURNING_SPEED, TURNING_SPEED);
+    	    	chThdSleepMilliseconds(QUARTER_TURN_TIME);
+    	    	motor_stop();
+    	    	if (VL53L0X_get_dist_mm() >= SECURITY_DIST_TOF) {		//go to search_line
+    	    		ready_to_search_direction = false;
+    	    		ready_to_search_line = true;
+    	    	} else {
+    	    		ready_to_search_direction = true;
+    	    		ready_to_search_line = false;					//go to search_direction
+    	    	}
     	    	break;
     	}
     }
